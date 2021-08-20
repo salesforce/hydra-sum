@@ -1,0 +1,158 @@
+conda activate /export/home/anaconda3/envs/py37/
+cd /export/home/code/modelling
+python3 train_seq2seq.py \
+    --model_type bart_subpop \
+    --model_name_or_path facebook/bart-large \
+    --do_train \
+    --train_data_file ../../data/cnndm/cnn/lexical/train.tsv \
+    --eval_data_file ../../data/cnndm/cnn/lexical/dev.tsv \
+    --test_data_file ../../data/cnndm/cnn/lexical/test.tsv \
+    --per_gpu_eval_batch_size=30 \
+    --per_gpu_train_batch_size=16 \
+    --gradient_accumulation_steps=1 \
+    --num_train_epochs 3 \
+    --learning_rate 1e-5 \
+    --output_dir  ../../data/cnndm/cnn/lexical/model-bart-subpop0 \
+    --overwrite_output_dir \
+    --gpu_device 7 --subpop 0
+
+
+
+python3 train_seq2seq.py \
+    --model_type bart_subpop \
+    --model_name_or_path facebook/bart-large \
+    --do_train \
+    --train_data_file ../../data/newsroom/mixed/lexical/train.tsv \
+    --eval_data_file ../../data/newsroom/mixed/lexical/dev.tsv \
+    --test_data_file ../../data/newsroom/mixed/lexical/test.tsv \
+    --per_gpu_eval_batch_size=15 \
+    --per_gpu_train_batch_size=16 \
+    --gradient_accumulation_steps=1 \
+    --num_train_epochs 5 \
+    --learning_rate 1e-5 \
+    --output_dir ../../data/newsroom/mixed/lexical/model-bart-2heads-8layers-subpop1 \
+    --overwrite_output_dir \
+    --gpu_device 0  --subpop 1
+
+conda activate /export/home/anaconda3/envs/py37/
+cd /export/home/code/modelling
+python3 train_seq2seq.py \
+    --model_type bart \
+    --model_name_or_path facebook/bart-large \
+    --input_dir ../../data/xsum/model-bart/3/ --do_eval \
+    --train_data_file  ../../data/xsum/train.tsv \
+    --eval_data_file  ../../data/xsum/dev.tsv \
+    --test_data_file  ../../data/xsum/test.tsv \
+    --per_gpu_eval_batch_size=20 \
+    --per_gpu_train_batch_size=4 \
+    --gradient_accumulation_steps=4 \
+    --num_train_epochs 3 \
+    --learning_rate 1e-5 \
+    --output_dir  ../../data/xsum/model-bart/3 \
+    --overwrite_output_dir \
+    --gpu_device 6  --num_decoder_layers_shared 8  --generate
+
+conda activate /export/home/anaconda3/envs/py37/
+python3 train_seq2seq.py \
+    --model_type bart_mult_heads_2 \
+    --model_name_or_path facebook/bart-large \
+    --do_train \
+    --train_data_file /export/share/wkryscinski/intern-tanya/data/newsroom/lexical/train.tsv \
+    --eval_data_file /export/share/wkryscinski/intern-tanya/data/newsroom/lexical/dev.tsv \
+    --test_data_file /export/share/wkryscinski/intern-tanya/data/newsroom/lexical/test.tsv \
+    --per_gpu_eval_batch_size=20 \
+    --per_gpu_train_batch_size=8 \
+    --gradient_accumulation_steps=2 \
+    --num_train_epochs 3 \
+    --learning_rate 1e-5 \
+    --output_dir /export/share/wkryscinski/intern-tanya/data/newsroom/lexical/model-bart-2heads-8layers \
+    --overwrite_output_dir \
+    --gpu_device 2 --num_decoder_layers_shared 8
+
+
+python3 train_seq2seq.py \
+    --model_type bart_topic \
+    --model_name_or_path facebook/bart-large \
+    --input_dir ../../data/cnndm/cnn/keywords_data/topic-model/3.0/ \
+    --train_data_file ../../data/cnndm/cnn/keywords_data/train.tsv \
+    --eval_data_file ../../data/cnndm/cnn/keywords_data/dev.tsv \
+    --per_gpu_eval_batch_size=8 \
+    --per_gpu_train_batch_size=2 \
+    --gradient_accumulation_steps=8 \
+    --num_train_epochs 10 \
+    --learning_rate 1e-5 \
+    --output_dir  ../../data/cnndm/cnn/output_multi_attribute/topic_low_copy \
+    --overwrite_output_dir \
+    --save_steps 500  --gpu_device 3   --generate
+
+conda activate /export/home/anaconda3/envs/py37/
+python3 eval_multi_attribute.py \
+    --model_type bart \
+    --model_1_config model_1_config.json \
+    --model_2_config model_2_config.json \
+    --test_data_file ../../data/newsroom/mixed/lexical/test.tsv \
+    --per_gpu_eval_batch_size=8 \
+    --output_dir  ../../data/newsroom/mixed/lexical/output_multi_attribute/low_copy_high_spec \
+    --gpu_device 2  --generate  --gate_prob 0.5
+
+
+python3 train_seq2seq.py \
+--model_type bart_mult_heads \
+--model_name_or_path facebook/bart-large \
+--input_dir ../../data/newsroom_old/mixed/20k_w_gates/seen_unseen/model-bart-multiheads-4-gates/ \
+--train_data_file ../../data/newsroom/mixed/train.tsv \
+--eval_data_file ../../data/newsroom/mixed/dev.tsv \
+--per_gpu_eval_batch_size=8 \
+--per_gpu_train_batch_size=2 \
+--gradient_accumulation_steps=8 \
+--num_train_epochs 10 \
+--learning_rate 1e-5 \
+--output_dir   ../../data/newsroom/mixed/multi-attribute-outputs \
+--overwrite_output_dir \
+--save_steps 500  --gpu_device 1   --use_mixed --gate_probability 0.4  --generate
+
+
+python3 train_seq2seq.py \
+    --model_type bart_mult_heads \
+    --model_name_or_path facebook/bart-large \
+    --input_dir ../../data/cnndm/cnn/model-bart-2heads-gate/3.0/ \
+    --train_data_file ../../data/cnndm/cnn/train.tsv \
+    --eval_data_file ../../data/cnndm/cnn/dev.tsv \
+    --per_gpu_eval_batch_size=8 \
+    --per_gpu_train_batch_size=2 \
+    --gradient_accumulation_steps=8 \
+    --num_train_epochs 5 \
+    --learning_rate 2e-5 \
+    --output_dir ./test \
+    --overwrite_output_dir \
+    --save_steps 500  --gpu_device 3   --use_head 0 --generate
+
+python3 train_seq2seq.py \
+    --model_type bart_mult_heads \
+    --model_name_or_path facebook/bart-large \
+    --input_dir ../../data/newsroom_old/mixed/20k/model-bart-multheads-4 \
+    --train_data_file=../../data/newsroom_old/extractive/20k/train.tsv \
+    --eval_data_file=../../data/newsroom_old/extractive/20k/dev.tsv \
+    --per_gpu_eval_batch_size=16 \
+    --per_gpu_train_batch_size=2 \
+    --gradient_accumulation_steps=4 \
+    --max_steps 5000 \
+    --learning_rate 2e-5 \
+    --output_dir ./ \
+    --overwrite_output_dir \
+    --save_steps 1000  --use_mixed  --num_decoder_layers_shared 10
+
+
+python3 classification.py \
+    --model_type electra_sentence \
+    --model_name_or_path google/electra-base-discriminator \
+    --do_train \
+    --train_data_file=../../data/newsroom/all/20k/classification_test_dummy/train.tsv \
+    --eval_data_file=../../data/newsroom/all/20k/classification_test_dummy/dev.tsv  \
+    --per_gpu_eval_batch_size=8   \
+    --per_gpu_train_batch_size=8   \
+    --num_train_epochs 3.0 \
+    --learning_rate 2e-5 \
+    --output_dir ../../data/newsroom/all/20k/classification_test_dummy/model-electra
+
+

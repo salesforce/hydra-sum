@@ -1,0 +1,5 @@
+{
+  "path": "../../data/newsroom/mixed/specificity/model-bart-2heads-8layers/3/",
+  "model_type": "bart_mult_heads_2",
+  "use_head": 1
+}
