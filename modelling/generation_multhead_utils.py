@@ -1,3 +1,8 @@
+"""Copyright (c) 2021, salesforce.com, inc.
+All rights reserved.
+SPDX-License-Identifier: BSD-3-Clause
+For full license text, see the LICENSE file in the repo root or https://opensource.org/licenses/BSD-3-Clause"""
+
 import torch
 from transformers import PreTrainedModel, BartModel, BartConfig, PegasusModel, PegasusConfig, \
     BartPretrainedModel
@@ -9,7 +14,6 @@ from transformers.models.bart.modeling_bart import BartEncoder, BartDecoder
 import torch.nn.functional as F
 from typing import Dict, List, Optional, Tuple
 import copy
-
 
 
 class BartModelMultHeads(BartPretrainedModel):
