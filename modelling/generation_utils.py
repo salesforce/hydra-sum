@@ -29,7 +29,8 @@ from transformers.generation_logits_process import (
     ForcedBOSTokenLogitsProcessor,
     ForcedEOSTokenLogitsProcessor,
     HammingDiversityLogitsProcessor,
-    InfNanRemoveLogitsProcessor,
+    # InfNanRemoveLogitsProcessor,
+    LogitsProcessor,  # remove this
     LogitsProcessorList,
     MinLengthLogitsProcessor,
     NoBadWordsLogitsProcessor,
@@ -48,8 +49,25 @@ from transformers.generation_stopping_criteria import (
 )
 from transformers.utils import logging
 
-
 logger = logging.get_logger(__name__)
+
+
+class InfNanRemoveLogitsProcessor(LogitsProcessor):
+    r"""
+    :class:`~transformers.LogitsProcessor` that removes all :obj:`nan` and :obj:`inf` values to avoid the generation
+    method to fail. Note that using the logits processor should only be used if necessary since it can slow down the
+    generation method. :obj:`max_length` is reached.
+    """
+
+    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
+        # set all nan values to 0.0
+        scores[scores != scores] = 0.0
+
+        # set all inf values to max possible value
+        scores[scores == float("inf")] = torch.finfo(scores.dtype).max
+
+        return scores
+
 
 # unchanged
 @dataclass
@@ -59,10 +77,10 @@ class GreedySearchDecoderOnlyOutput(ModelOutput):
     attentions: Optional[Tuple[Tuple[torch.FloatTensor]]] = None
     hidden_states: Optional[Tuple[Tuple[torch.FloatTensor]]] = None
 
+
 # unchanged
 @dataclass
 class GreedySearchEncoderDecoderOutput(ModelOutput):
-
     sequences: torch.LongTensor = None
     scores: Optional[Tuple[torch.FloatTensor]] = None
     encoder_attentions: Optional[Tuple[torch.FloatTensor]] = None
@@ -70,6 +88,7 @@ class GreedySearchEncoderDecoderOutput(ModelOutput):
     decoder_attentions: Optional[Tuple[Tuple[torch.FloatTensor]]] = None
     cross_attentions: Optional[Tuple[Tuple[torch.FloatTensor]]] = None
     decoder_hidden_states: Optional[Tuple[Tuple[torch.FloatTensor]]] = None
+
 
 # unchanged
 @dataclass
@@ -79,10 +98,10 @@ class SampleDecoderOnlyOutput(ModelOutput):
     attentions: Optional[Tuple[Tuple[torch.FloatTensor]]] = None
     hidden_states: Optional[Tuple[Tuple[torch.FloatTensor]]] = None
 
+
 # unchanged
 @dataclass
 class SampleEncoderDecoderOutput(ModelOutput):
-
     sequences: torch.LongTensor = None
     scores: Optional[Tuple[torch.FloatTensor]] = None
     encoder_attentions: Optional[Tuple[torch.FloatTensor]] = None
@@ -254,7 +273,7 @@ class GenerationMixinCustom:
         return logits
 
     def _prepare_input_ids_for_generation(
-        self, bos_token_id: Optional[int], encoder_outputs: Optional[ModelOutput]
+            self, bos_token_id: Optional[int], encoder_outputs: Optional[ModelOutput]
     ) -> torch.LongTensor:
         if self.config.is_encoder_decoder and encoder_outputs is not None:
             # make dummy input_ids with value -100, as a sanity check ensuring that they won't be used for encoding
@@ -266,18 +285,18 @@ class GenerationMixinCustom:
         return torch.ones((1, 1), dtype=torch.long, device=self.device) * bos_token_id
 
     def _prepare_attention_mask_for_generation(
-        self, input_ids: torch.Tensor, pad_token_id: int, eos_token_id: int
+            self, input_ids: torch.Tensor, pad_token_id: int, eos_token_id: int
     ) -> torch.LongTensor:
         is_pad_token_in_inputs_ids = (pad_token_id is not None) and (pad_token_id in input_ids)
         is_pad_token_not_equal_to_eos_token_id = (eos_token_id is None) or (
-            (eos_token_id is not None) and (pad_token_id != eos_token_id)
+                (eos_token_id is not None) and (pad_token_id != eos_token_id)
         )
         if is_pad_token_in_inputs_ids and is_pad_token_not_equal_to_eos_token_id:
             return input_ids.ne(pad_token_id).long()
         return input_ids.new_ones(input_ids.shape, dtype=torch.long)
 
     def _prepare_encoder_decoder_kwargs_for_generation(
-        self, input_ids: torch.LongTensor, model_kwargs
+            self, input_ids: torch.LongTensor, model_kwargs
     ) -> Dict[str, Any]:
         if "encoder_outputs" not in model_kwargs:
             # retrieve encoder hidden states
@@ -289,11 +308,11 @@ class GenerationMixinCustom:
         return model_kwargs
 
     def _prepare_decoder_input_ids_for_generation(
-        self, input_ids: torch.LongTensor, decoder_start_token_id: int = None, bos_token_id: int = None
+            self, input_ids: torch.LongTensor, decoder_start_token_id: int = None, bos_token_id: int = None
     ) -> torch.LongTensor:
         decoder_start_token_id = self._get_decoder_start_token_id(decoder_start_token_id, bos_token_id)
         decoder_input_ids = (
-            torch.ones((input_ids.shape[0], 1), dtype=torch.long, device=input_ids.device) * decoder_start_token_id
+                torch.ones((input_ids.shape[0], 1), dtype=torch.long, device=input_ids.device) * decoder_start_token_id
         )
         return decoder_input_ids
 
@@ -312,17 +331,17 @@ class GenerationMixinCustom:
         if decoder_start_token_id is not None:
             return decoder_start_token_id
         elif (
-            hasattr(self.config, "decoder")
-            and hasattr(self.config.decoder, "decoder_start_token_id")
-            and self.config.decoder.decoder_start_token_id is not None
+                hasattr(self.config, "decoder")
+                and hasattr(self.config.decoder, "decoder_start_token_id")
+                and self.config.decoder.decoder_start_token_id is not None
         ):
             return self.config.decoder.decoder_start_token_id
         elif bos_token_id is not None:
             return bos_token_id
         elif (
-            hasattr(self.config, "decoder")
-            and hasattr(self.config.decoder, "bos_token_id")
-            and self.config.decoder.bos_token_id is not None
+                hasattr(self.config, "decoder")
+                and hasattr(self.config.decoder, "bos_token_id")
+                and self.config.decoder.bos_token_id is not None
         ):
             return self.config.decoder.bos_token_id
         raise ValueError(
@@ -331,12 +350,12 @@ class GenerationMixinCustom:
 
     @staticmethod
     def _expand_inputs_for_generation(
-        input_ids: torch.LongTensor,
-        expand_size: int = 1,
-        is_encoder_decoder: bool = False,
-        attention_mask: torch.LongTensor = None,
-        encoder_outputs: ModelOutput = None,
-        **model_kwargs,
+            input_ids: torch.LongTensor,
+            expand_size: int = 1,
+            is_encoder_decoder: bool = False,
+            attention_mask: torch.LongTensor = None,
+            encoder_outputs: ModelOutput = None,
+            **model_kwargs,
     ) -> Tuple[torch.LongTensor, Dict[str, Any]]:
         expanded_return_idx = (
             torch.arange(input_ids.shape[0]).view(-1, 1).repeat(1, expand_size).view(-1).to(input_ids.device)
@@ -360,7 +379,7 @@ class GenerationMixinCustom:
 
     @staticmethod
     def _update_model_kwargs_for_generation(
-        outputs: ModelOutput, model_kwargs: Dict[str, Any], is_encoder_decoder: bool = False
+            outputs: ModelOutput, model_kwargs: Dict[str, Any], is_encoder_decoder: bool = False
     ) -> Dict[str, Any]:
         # update past
         if "past_key_values" in outputs:
@@ -393,7 +412,7 @@ class GenerationMixinCustom:
         )
 
     def _get_logits_warper(
-        self, top_k: int = None, top_p: float = None, temperature: float = None, num_beams: int = None
+            self, top_k: int = None, top_p: float = None, temperature: float = None, num_beams: int = None
     ) -> LogitsProcessorList:
         """
         This class returns a :obj:`~transformers.LogitsProcessorList` list object that contains all relevant
@@ -418,22 +437,22 @@ class GenerationMixinCustom:
         return warpers
 
     def _get_logits_processor(
-        self,
-        repetition_penalty: float,
-        no_repeat_ngram_size: int,
-        encoder_no_repeat_ngram_size: int,
-        encoder_input_ids: torch.LongTensor,
-        bad_words_ids: List[List[int]],
-        min_length: int,
-        max_length: int,
-        eos_token_id: int,
-        forced_bos_token_id: int,
-        forced_eos_token_id: int,
-        prefix_allowed_tokens_fn: Callable[[int, torch.Tensor], List[int]],
-        num_beams: int,
-        num_beam_groups: int,
-        diversity_penalty: float,
-        remove_invalid_values: bool,
+            self,
+            repetition_penalty: float,
+            no_repeat_ngram_size: int,
+            encoder_no_repeat_ngram_size: int,
+            encoder_input_ids: torch.LongTensor,
+            bad_words_ids: List[List[int]],
+            min_length: int,
+            max_length: int,
+            eos_token_id: int,
+            forced_bos_token_id: int,
+            forced_eos_token_id: int,
+            prefix_allowed_tokens_fn: Callable[[int, torch.Tensor], List[int]],
+            num_beams: int,
+            num_beam_groups: int,
+            diversity_penalty: float,
+            remove_invalid_values: bool,
     ) -> LogitsProcessorList:
         """
         This class returns a :obj:`~transformers.LogitsProcessorList` list object that contains all relevant
@@ -500,9 +519,9 @@ class GenerationMixinCustom:
         return processors
 
     def _get_stopping_criteria(
-        self,
-        max_length: Optional[int],
-        max_time: Optional[float],
+            self,
+            max_length: Optional[int],
+            max_time: Optional[float],
     ) -> StoppingCriteriaList:
         stopping_criteria = StoppingCriteriaList()
         if max_length is not None:
@@ -513,40 +532,40 @@ class GenerationMixinCustom:
 
     @torch.no_grad()
     def generate(
-        self,
-        input_ids: Optional[torch.LongTensor] = None,
-        max_length: Optional[int] = None,
-        min_length: Optional[int] = None,
-        do_sample: Optional[bool] = None,
-        early_stopping: Optional[bool] = None,
-        num_beams: Optional[int] = None,
-        temperature: Optional[float] = None,
-        top_k: Optional[int] = None,
-        top_p: Optional[float] = None,
-        repetition_penalty: Optional[float] = None,
-        bad_words_ids: Optional[Iterable[int]] = None,
-        bos_token_id: Optional[int] = None,
-        pad_token_id: Optional[int] = None,
-        eos_token_id: Optional[int] = None,
-        length_penalty: Optional[float] = None,
-        no_repeat_ngram_size: Optional[int] = None,
-        encoder_no_repeat_ngram_size: Optional[int] = None,
-        num_return_sequences: Optional[int] = None,
-        max_time: Optional[float] = None,
-        decoder_start_token_id: Optional[int] = None,
-        use_cache: Optional[bool] = None,
-        num_beam_groups: Optional[int] = None,
-        diversity_penalty: Optional[float] = None,
-        prefix_allowed_tokens_fn: Optional[Callable[[int, torch.Tensor], List[int]]] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        output_scores: Optional[bool] = None,
-        return_dict_in_generate: Optional[bool] = None,
-        forced_bos_token_id: Optional[int] = None,
-        forced_eos_token_id: Optional[int] = None,
-        remove_invalid_values: Optional[bool] = None,
-        synced_gpus: Optional[bool] = None,
-        **model_kwargs,
+            self,
+            input_ids: Optional[torch.LongTensor] = None,
+            max_length: Optional[int] = None,
+            min_length: Optional[int] = None,
+            do_sample: Optional[bool] = None,
+            early_stopping: Optional[bool] = None,
+            num_beams: Optional[int] = None,
+            temperature: Optional[float] = None,
+            top_k: Optional[int] = None,
+            top_p: Optional[float] = None,
+            repetition_penalty: Optional[float] = None,
+            bad_words_ids: Optional[Iterable[int]] = None,
+            bos_token_id: Optional[int] = None,
+            pad_token_id: Optional[int] = None,
+            eos_token_id: Optional[int] = None,
+            length_penalty: Optional[float] = None,
+            no_repeat_ngram_size: Optional[int] = None,
+            encoder_no_repeat_ngram_size: Optional[int] = None,
+            num_return_sequences: Optional[int] = None,
+            max_time: Optional[float] = None,
+            decoder_start_token_id: Optional[int] = None,
+            use_cache: Optional[bool] = None,
+            num_beam_groups: Optional[int] = None,
+            diversity_penalty: Optional[float] = None,
+            prefix_allowed_tokens_fn: Optional[Callable[[int, torch.Tensor], List[int]]] = None,
+            output_attentions: Optional[bool] = None,
+            output_hidden_states: Optional[bool] = None,
+            output_scores: Optional[bool] = None,
+            return_dict_in_generate: Optional[bool] = None,
+            forced_bos_token_id: Optional[int] = None,
+            forced_eos_token_id: Optional[int] = None,
+            remove_invalid_values: Optional[bool] = None,
+            synced_gpus: Optional[bool] = None,
+            **model_kwargs,
     ) -> Union[GreedySearchOutput, SampleOutput, BeamSearchOutput, BeamSampleOutput, torch.LongTensor]:
         r"""
         Generates sequences for models with a language modeling head. The method currently supports greedy decoding,
@@ -680,7 +699,6 @@ class GenerationMixinCustom:
                     - :class:`~transformers.generation_utils.BeamSearchEncoderDecoderOutput`,
                     - :class:`~transformers.generation_utils.BeamSampleEncoderDecoderOutput`
         """
-
 
         # set init values
         max_length = max_length if max_length is not None else self.config.max_length
@@ -873,7 +891,7 @@ class GenerationMixinCustom:
                 top_k=top_k, top_p=top_p, temperature=temperature, num_beams=num_beams
             )
 
-            batch_size = input_ids.shape[0] #* num_return_sequences
+            batch_size = input_ids.shape[0]  # * num_return_sequences
 
             length_penalty = length_penalty if length_penalty is not None else self.config.length_penalty
             if stopping_criteria.max_length is None:
@@ -952,19 +970,19 @@ class GenerationMixinCustom:
             )
 
     def greedy_search(
-        self,
-        input_ids: torch.LongTensor,
-        logits_processor: Optional[LogitsProcessorList] = None,
-        stopping_criteria: Optional[StoppingCriteriaList] = None,
-        max_length: Optional[int] = None,
-        pad_token_id: Optional[int] = None,
-        eos_token_id: Optional[int] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        output_scores: Optional[bool] = None,
-        return_dict_in_generate: Optional[bool] = None,
-        synced_gpus: Optional[bool] = None,
-        **model_kwargs,
+            self,
+            input_ids: torch.LongTensor,
+            logits_processor: Optional[LogitsProcessorList] = None,
+            stopping_criteria: Optional[StoppingCriteriaList] = None,
+            max_length: Optional[int] = None,
+            pad_token_id: Optional[int] = None,
+            eos_token_id: Optional[int] = None,
+            output_attentions: Optional[bool] = None,
+            output_hidden_states: Optional[bool] = None,
+            output_scores: Optional[bool] = None,
+            return_dict_in_generate: Optional[bool] = None,
+            synced_gpus: Optional[bool] = None,
+            **model_kwargs,
     ) -> Union[GreedySearchOutput, torch.LongTensor]:
         r"""
         Generates sequences for models with a language modeling head using greedy decoding.
@@ -1150,20 +1168,20 @@ class GenerationMixinCustom:
             return input_ids
 
     def sample(
-        self,
-        input_ids: torch.LongTensor,
-        logits_processor: Optional[LogitsProcessorList] = None,
-        stopping_criteria: Optional[StoppingCriteriaList] = None,
-        logits_warper: Optional[LogitsProcessorList] = None,
-        max_length: Optional[int] = None,
-        pad_token_id: Optional[int] = None,
-        eos_token_id: Optional[int] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        output_scores: Optional[bool] = None,
-        return_dict_in_generate: Optional[bool] = None,
-        synced_gpus: Optional[bool] = None,
-        **model_kwargs,
+            self,
+            input_ids: torch.LongTensor,
+            logits_processor: Optional[LogitsProcessorList] = None,
+            stopping_criteria: Optional[StoppingCriteriaList] = None,
+            logits_warper: Optional[LogitsProcessorList] = None,
+            max_length: Optional[int] = None,
+            pad_token_id: Optional[int] = None,
+            eos_token_id: Optional[int] = None,
+            output_attentions: Optional[bool] = None,
+            output_hidden_states: Optional[bool] = None,
+            output_scores: Optional[bool] = None,
+            return_dict_in_generate: Optional[bool] = None,
+            synced_gpus: Optional[bool] = None,
+            **model_kwargs,
     ) -> Union[SampleOutput, torch.LongTensor]:
         r"""
         Generates sequences for models with a language modeling head using multinomial sampling.
@@ -1357,20 +1375,20 @@ class GenerationMixinCustom:
             return input_ids
 
     def beam_search(
-        self,
-        input_ids: torch.LongTensor,
-        beam_scorer: BeamScorer,
-        logits_processor: Optional[LogitsProcessorList] = None,
-        stopping_criteria: Optional[StoppingCriteriaList] = None,
-        max_length: Optional[int] = None,
-        pad_token_id: Optional[int] = None,
-        eos_token_id: Optional[int] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        output_scores: Optional[bool] = None,
-        return_dict_in_generate: Optional[bool] = None,
-        synced_gpus: Optional[bool] = None,
-        **model_kwargs,
+            self,
+            input_ids: torch.LongTensor,
+            beam_scorer: BeamScorer,
+            logits_processor: Optional[LogitsProcessorList] = None,
+            stopping_criteria: Optional[StoppingCriteriaList] = None,
+            max_length: Optional[int] = None,
+            pad_token_id: Optional[int] = None,
+            eos_token_id: Optional[int] = None,
+            output_attentions: Optional[bool] = None,
+            output_hidden_states: Optional[bool] = None,
+            output_scores: Optional[bool] = None,
+            return_dict_in_generate: Optional[bool] = None,
+            synced_gpus: Optional[bool] = None,
+            **model_kwargs,
     ) -> Union[BeamSearchOutput, torch.LongTensor]:
         r"""
         Generates sequences for models with a language modeling head using beam search decoding.
@@ -1464,7 +1482,7 @@ class GenerationMixinCustom:
         batch_beam_size, cur_len = input_ids.shape
 
         assert (
-            num_beams * batch_size == batch_beam_size
+                num_beams * batch_size == batch_beam_size
         ), f"Batch dimension of `input_ids` should be {num_beams * batch_size}, but is {batch_beam_size}."
 
         beam_scores = torch.zeros((batch_size, num_beams), dtype=torch.float, device=input_ids.device)
@@ -1602,21 +1620,21 @@ class GenerationMixinCustom:
             return sequence_outputs["sequences"]
 
     def beam_sample(
-        self,
-        input_ids: torch.LongTensor,
-        beam_scorer: BeamScorer,
-        logits_processor: Optional[LogitsProcessorList] = None,
-        stopping_criteria: Optional[StoppingCriteriaList] = None,
-        logits_warper: Optional[LogitsProcessorList] = None,
-        max_length: Optional[int] = None,
-        pad_token_id: Optional[int] = None,
-        eos_token_id: Optional[int] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        output_scores: Optional[bool] = None,
-        return_dict_in_generate: Optional[bool] = None,
-        synced_gpus: Optional[bool] = None,
-        **model_kwargs,
+            self,
+            input_ids: torch.LongTensor,
+            beam_scorer: BeamScorer,
+            logits_processor: Optional[LogitsProcessorList] = None,
+            stopping_criteria: Optional[StoppingCriteriaList] = None,
+            logits_warper: Optional[LogitsProcessorList] = None,
+            max_length: Optional[int] = None,
+            pad_token_id: Optional[int] = None,
+            eos_token_id: Optional[int] = None,
+            output_attentions: Optional[bool] = None,
+            output_hidden_states: Optional[bool] = None,
+            output_scores: Optional[bool] = None,
+            return_dict_in_generate: Optional[bool] = None,
+            synced_gpus: Optional[bool] = None,
+            **model_kwargs,
     ) -> Union[BeamSampleOutput, torch.LongTensor]:
         r"""
         Generates sequences for models with a language modeling head using beam search with multinomial sampling.
@@ -1712,7 +1730,7 @@ class GenerationMixinCustom:
 
         batch_beam_size, cur_len = input_ids.shape
 
-        #beam_scores = torch.zeros((batch_size, num_beams), dtype=torch.float, device=input_ids.device)
+        # beam_scores = torch.zeros((batch_size, num_beams), dtype=torch.float, device=input_ids.device)
 
         beam_scores = torch.full((batch_size, num_beams), -1e9, dtype=torch.float, device=input_ids.device)
         beam_scores[:, ::num_sub_beams] = 0
@@ -1855,20 +1873,20 @@ class GenerationMixinCustom:
             return sequence_outputs["sequences"]
 
     def group_beam_search(
-        self,
-        input_ids: torch.LongTensor,
-        beam_scorer: BeamScorer,
-        logits_processor: Optional[LogitsProcessorList] = None,
-        stopping_criteria: Optional[StoppingCriteriaList] = None,
-        max_length: Optional[int] = None,
-        pad_token_id: Optional[int] = None,
-        eos_token_id: Optional[int] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        output_scores: Optional[bool] = None,
-        return_dict_in_generate: Optional[bool] = None,
-        synced_gpus: Optional[bool] = None,
-        **model_kwargs,
+            self,
+            input_ids: torch.LongTensor,
+            beam_scorer: BeamScorer,
+            logits_processor: Optional[LogitsProcessorList] = None,
+            stopping_criteria: Optional[StoppingCriteriaList] = None,
+            max_length: Optional[int] = None,
+            pad_token_id: Optional[int] = None,
+            eos_token_id: Optional[int] = None,
+            output_attentions: Optional[bool] = None,
+            output_hidden_states: Optional[bool] = None,
+            output_scores: Optional[bool] = None,
+            return_dict_in_generate: Optional[bool] = None,
+            synced_gpus: Optional[bool] = None,
+            **model_kwargs,
     ):
         r"""
         Generates sequences for models with a language modeling head using beam search decoding.
@@ -1965,7 +1983,7 @@ class GenerationMixinCustom:
         batch_beam_size, cur_len = input_ids.shape
 
         assert (
-            num_beams * batch_size == batch_beam_size
+                num_beams * batch_size == batch_beam_size
         ), f"Batch dimension of `input_ids` should be {num_beams * batch_size}, but is {batch_beam_size}."
 
         beam_scores = torch.full((batch_size, num_beams), -1e9, dtype=torch.float, device=device)
@@ -2072,7 +2090,7 @@ class GenerationMixinCustom:
                 # (beam_idx // group_size) -> batch_idx
                 # (beam_idx % group_size) -> offset of idx inside the group
                 reordering_indices[batch_group_indices] = (
-                    num_beams * (beam_idx // group_size) + group_start_idx + (beam_idx % group_size)
+                        num_beams * (beam_idx // group_size) + group_start_idx + (beam_idx % group_size)
                 )
 
             # Store scores, attentions and hidden_states when required
@@ -2147,11 +2165,11 @@ class GenerationMixinCustom:
 
 
 def top_k_top_p_filtering(
-    logits: torch.FloatTensor,
-    top_k: int = 0,
-    top_p: float = 1.0,
-    filter_value: float = -float("Inf"),
-    min_tokens_to_keep: int = 1,
+        logits: torch.FloatTensor,
+        top_k: int = 0,
+        top_p: float = 1.0,
+        filter_value: float = -float("Inf"),
+        min_tokens_to_keep: int = 1,
 ) -> torch.FloatTensor:
     """
     Filter a distribution of logits using top-k and/or nucleus (top-p) filtering

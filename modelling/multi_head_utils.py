@@ -4,9 +4,7 @@ SPDX-License-Identifier: BSD-3-Clause
 For full license text, see the LICENSE file in the repo root or https://opensource.org/licenses/BSD-3-Clause"""
 
 import torch
-from transformers import PreTrainedModel, BartModel, BartConfig, PegasusModel, PegasusConfig, \
-    BartPretrainedModel
-from nltk import word_tokenize, ngrams
+from transformers import PreTrainedModel, BartModel, BartConfig, BartPretrainedModel
 from transformers.modeling_outputs import Seq2SeqLMOutput, Seq2SeqModelOutput, BaseModelOutput
 from torch import nn
 import train_seq2seq_utils
@@ -217,7 +215,6 @@ class ConditionalGenerationCustomBartMultHeads(GenerationMixinCustom, BartPretra
             gate=None,
             use_gate_supervision=False,
             gate_prob=None,
-            reward=None,
             use_sentence_gate_supervision=False,
             sent_gate=None,
             **unused,
@@ -255,15 +252,20 @@ class ConditionalGenerationCustomBartMultHeads(GenerationMixinCustom, BartPretra
                 softmax_0 = softmax_0 * gate_prob
                 softmax_1 = softmax_1 * (1 - gate_prob)
             elif use_sentence_gate_supervision:
-                softmax_0 = torch.mul(softmax_0, (1 - sent_gate).unsqueeze(1).unsqueeze(2))
-                softmax_1 = torch.mul(softmax_1, sent_gate.unsqueeze(1).unsqueeze(2))
+                # softmax_0 = torch.mul(softmax_0, (1 - sent_gate).unsqueeze(1).unsqueeze(2))
+                # softmax_1 = torch.mul(softmax_1, sent_gate.unsqueeze(1).unsqueeze(2))
+                softmax_0 = torch.mul(softmax_0, (1 - sent_gate).unsqueeze(2))
+                softmax_1 = torch.mul(softmax_1, sent_gate.unsqueeze(2))
+                #print(sent_gate)
+                #print(softmax_0)
+                #print(softmax_1)
             else:
                 prob0 = prob_head_selector[:, :, 0].unsqueeze(2)
                 prob1 = prob_head_selector[:, :, 1].unsqueeze(2)
                 softmax_0 = torch.mul(softmax_0, prob0)
                 softmax_1 = torch.mul(softmax_1, prob1)
 
-            lm_logits = torch.log(softmax_0 + softmax_1 + 1e-6)  # TODO: This is not logits, rename
+            lm_logits = torch.log(F.relu(softmax_0 + softmax_1) + 1e-6)  # TODO: This is not logits, rename
         else:
             outputs = self.model.forward(**input_args)
             lm_logits = F.linear(outputs[0], self.model.shared.weight, bias=self.final_logits_bias)
@@ -274,17 +276,8 @@ class ConditionalGenerationCustomBartMultHeads(GenerationMixinCustom, BartPretra
         if not generate:
             lm_labels = train_seq2seq_utils.shift_tokens_left(decoder_input_ids, 1)
 
-            if reward is None:
-                loss_fct = nn.NLLLoss(ignore_index=1)
-                masked_lm_loss = loss_fct(lm_logits.view(-1, self.config.vocab_size), lm_labels.view(-1))
-            else:
-                batch_size = decoder_input_ids.shape[0]
-                loss_fct = nn.NLLLoss(ignore_index=1, reduction='none')
-                masked_lm_loss_unreduced = loss_fct(lm_logits.view(-1, self.config.vocab_size), lm_labels.view(-1))
-                masked_lm_loss_unreduced = masked_lm_loss_unreduced.view((batch_size, -1))
-                masked_lm_loss_reduce_by_ex = torch.mean(masked_lm_loss_unreduced, dim=-1)
-                masked_lm_loss_weighted = reward * masked_lm_loss_reduce_by_ex
-                masked_lm_loss = torch.mean(masked_lm_loss_weighted)
+            loss_fct = nn.NLLLoss(ignore_index=1)
+            masked_lm_loss = loss_fct(lm_logits.view(-1, self.config.vocab_size), lm_labels.view(-1))
 
             if use_mixed and use_gate_supervision:
                 loss_fct_gate = nn.NLLLoss(ignore_index=-1)
@@ -425,39 +418,3 @@ def _tie_decoder_weights(decoder1: nn.Module, decoder2: nn.Module, module_name: 
 
     # tie weights recursively
     tie_decoder_recursively(decoder1, decoder2, module_name)
-
-
-def get_overlap(inp, out, ngram=2):
-
-    grams_inp = set(ngrams(word_tokenize(inp.lower()), ngram))
-    grams_out = set(ngrams(word_tokenize(out.lower()), ngram))
-
-    total = len(grams_out)
-    common = len(grams_inp.intersection(grams_out))
-    if total == 0:
-        return 0
-    else:
-        return float(common) / float(total)
-
-
-def get_reward(input_ids, output_ids, tokenizer, head):
-
-    inputs = tokenizer.batch_decode(input_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True)
-    outputs = tokenizer.batch_decode(output_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True)
-
-    rewards = []
-    for inp, out in zip(inputs, outputs):
-        rewards.append(get_overlap(inp, out))
-
-    if head == 0:
-        rewards = [0.75 - r for r in rewards]
-    else:
-        rewards = [r - 0.75 for r in rewards]
-
-    return rewards
-
-
-
-class ConditionalGenerationCustomPegasusMultHeads():
-    def __init__(self):
-        'here'

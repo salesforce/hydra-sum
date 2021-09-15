@@ -7,6 +7,7 @@ import os, csv, torch, copy
 import logging
 from torch.utils.data import TensorDataset
 from torch import nn
+from nltk import sent_tokenize
 
 logger = logging.getLogger(__name__)
 
@@ -40,10 +41,7 @@ def convert_examples_to_features(examples, tokenizer, max_length=512, max_decode
 
         input = example['article']
         output = example['summary']
-        try:
-            id = example['id']
-        except:
-            id = ex_index
+        id = example['id']
 
         if input == '' or output == '':
             continue
@@ -57,6 +55,7 @@ def convert_examples_to_features(examples, tokenizer, max_length=512, max_decode
         input_attention_mask = [1] * len(input_ids) + ([0] * padding_length_a)
         input_ids = input_ids + ([pad_id] * padding_length_a)
 
+        """
         decoder_ids = tokenizer.encode(output, add_prefix_space=True)
 
         if 'gate' in example.keys():
@@ -75,42 +74,43 @@ def convert_examples_to_features(examples, tokenizer, max_length=512, max_decode
         else:
             gate_wplevel = [-1] * len(decoder_ids)
 
-        assert len(gate_wplevel) == len(decoder_ids), 'mismatch in splitting w/ gating_supervision'
+        assert len(gate_wplevel) == len(decoder_ids), 'mismatch in splitting w/ gating_supervision'"""
+
+        if 'gate_sent' in example.keys():
+            sent_gates = [float(g) for g in example['gate_sent'].split()] # previously int
+            output_sents = sent_tokenize(output)
+            assert len(sent_gates) == len(output_sents), 'mismatch in splitting w/ gating_supervision'
+
+            decoder_ids = []
+            gate_sent = []
+            for sent, g in zip(output_sents, sent_gates):
+                decoder_ids_sent = tokenizer.encode(sent, add_prefix_space=True)
+                gate_sent += [g] * len(decoder_ids_sent)
+                decoder_ids += decoder_ids_sent
+
+        else:
+            decoder_ids = tokenizer.encode(output, add_prefix_space=True)
+            gate_sent = [0] * len(decoder_ids)
 
         if len(decoder_ids) > max_decoder_length:
             decoder_ids = decoder_ids[:max_decoder_length - 1]
-            gate_wplevel = gate_wplevel[:max_decoder_length - 1]
+            # gate_wplevel = gate_wplevel[:max_decoder_length - 1]
+            gate_sent = gate_sent[:max_decoder_length - 1]
 
         padding_length_b = max_decoder_length - len(decoder_ids)
         decoder_attention_mask = [1] * len(decoder_ids) + ([0] * padding_length_b)
         decoder_ids = decoder_ids + ([pad_id] * padding_length_b)
-        gate_wplevel = gate_wplevel + ([-1] * padding_length_b)
-
-        if 'gate_sent' in example.keys():
-            sent_gate = int(example['gate_sent'])
-        else:
-            sent_gate = 0
-
-        if 'oracle_toks' in example.keys():
-            topic_ids = tokenizer.encode(example['oracle_toks'], add_prefix_space=True)
-            topic_ids = topic_ids[:max_decoder_length - 1]
-
-            padding_length_c = max_decoder_length - len(topic_ids)
-            topic_attention_mask = [1] * len(topic_ids) + ([0] * padding_length_c)
-            topic_ids = topic_ids + ([pad_id] * padding_length_c)
-        else:
-            topic_ids = [1, 1]
-            topic_attention_mask = [0, 0]
+        # gate_wplevel = gate_wplevel + ([-1] * padding_length_b)
+        gate_sent = gate_sent + ([0] * padding_length_b)
 
         features.append(InputFeatures(input_ids=input_ids,
                                       attention=input_attention_mask,
                                       decoder_attention=decoder_attention_mask,
                                       decoder_ids=decoder_ids,
                                       id=id,
-                                      gate=gate_wplevel,
-                                      sent_gate=sent_gate,
-                                      topic_ids=topic_ids,
-                                      topic_attention_mask=topic_attention_mask))
+                                      #gate=gate_wplevel,
+                                      sent_gate=gate_sent))
+
     print(len(features))
     return features
 
@@ -203,11 +203,11 @@ def load_and_cache_examples(args, tokenizer, split):
 
             examples = examples_new
         features = convert_examples_to_features(
-                examples,
-                tokenizer,
-                max_length=args.max_seq_length,
-                max_decoder_length=args.max_decoder_length,
-            )
+            examples,
+            tokenizer,
+            max_length=args.max_seq_length,
+            max_decoder_length=args.max_decoder_length,
+        )
         logger.info("Saving features into cached file %s", cached_features_file)
         torch.save(features, cached_features_file)
 
@@ -216,12 +216,11 @@ def load_and_cache_examples(args, tokenizer, split):
     input_attention_mask = torch.tensor([f.attention for f in features], dtype=torch.long)
     decoder_ids = torch.tensor([f.decoder_ids for f in features], dtype=torch.long)
     decoder_attention_mask = torch.tensor([f.decoder_attention for f in features], dtype=torch.long)
-    gate = torch.tensor([f.gate for f in features], dtype=torch.long)
-    sent_gate = torch.tensor([f.sent_gate for f in features], dtype=torch.long)
-    #topic_ids = torch.tensor([f.topic_ids for f in features], dtype=torch.long)
-    #topic_attention_mask = torch.tensor([f.topic_attention_mask for f in features], dtype=torch.long)
+    # gate = torch.tensor([f.gate for f in features], dtype=torch.long)
+    sent_gate = torch.tensor([f.sent_gate for f in features], dtype=torch.float)  # previously long
 
-    dataset = TensorDataset(input_ids, input_attention_mask, decoder_ids, decoder_attention_mask, gate, sent_gate)#, topic_ids, topic_attention_mask)
+    dataset = TensorDataset(input_ids, input_attention_mask, decoder_ids, decoder_attention_mask, sent_gate, # FIX THIS
+                            sent_gate)
 
     return dataset
 
