@@ -1,3 +1,19 @@
+# coding=utf-8
+# Copyright 2020 The Google AI Language Team Authors, Facebook AI Research authors and The HuggingFace Inc. team.
+# Copyright (c) 2020, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import copy
 import warnings
 from dataclasses import dataclass
@@ -14,7 +30,8 @@ from transformers.generation_logits_process import (
     ForcedBOSTokenLogitsProcessor,
     ForcedEOSTokenLogitsProcessor,
     HammingDiversityLogitsProcessor,
-    InfNanRemoveLogitsProcessor,
+    # InfNanRemoveLogitsProcessor,
+    LogitsProcessor,
     LogitsProcessorList,
     MinLengthLogitsProcessor,
     NoBadWordsLogitsProcessor,
@@ -50,6 +67,23 @@ from transformers.generation_utils import (
 from transformers.generation_utils import top_k_top_p_filtering
 
 logger = logging.get_logger(__name__)
+
+
+class InfNanRemoveLogitsProcessor(LogitsProcessor):
+    r"""
+    :class:`~transformers.LogitsProcessor` that removes all :obj:`nan` and :obj:`inf` values to avoid the generation
+    method to fail. Note that using the logits processor should only be used if necessary since it can slow down the
+    generation method. :obj:`max_length` is reached.
+    """
+
+    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
+        # set all nan values to 0.0
+        scores[scores != scores] = 0.0
+
+        # set all inf values to max possible value
+        scores[scores == float("inf")] = torch.finfo(scores.dtype).max
+
+        return scores
 
 
 class GenerationMixinCustom:

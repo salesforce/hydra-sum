@@ -10,7 +10,6 @@ from transformers.modeling_outputs import Seq2SeqLMOutput
 import train_seq2seq_utils
 import single_head_utils
 import multi_head_utils
-import topic_utils
 from torch import nn
 from generation_utils_multi_attribute import GenerationMixinCustomCombined
 
@@ -18,25 +17,13 @@ from transformers import (
     PreTrainedModel,
     PreTrainedTokenizer,
     BartConfig,
-    BartTokenizer,
-    PegasusConfig,
-    PegasusTokenizer,
-    PegasusForConditionalGeneration,
+    BartTokenizer
 )
 
 logger = logging.getLogger(__name__)
-MODEL_CLASSES = {"bart": (BartConfig,
-                          single_head_utils.ConditionalGenerationCustomBart,
-                          BartTokenizer),
-                 "pegasus": (PegasusConfig,
-                             PegasusForConditionalGeneration,
-                             PegasusTokenizer),
-                 "bart_mult_heads_2": (BartConfig,
+MODEL_CLASSES = {"bart_mult_heads_2": (BartConfig,
                                      multi_head_utils.ConditionalGenerationCustomBartMultHeads,
                                      BartTokenizer),
-                 "bart_topic": (BartConfig,
-                                topic_utils.ConditionalGenerationCustomBartTopic,
-                                BartTokenizer)
                  }
 
 
@@ -68,8 +55,6 @@ class BartModelCombined(GenerationMixinCustomCombined, nn.Module):
             encoder_outputs_2=None,
             past_key_values_1=None,
             past_key_values_2=None,
-            topic_encoder_outputs=None,
-            topic_mask=None,
             inputs_embeds=None,
             use_cache=None,
             output_attentions=False,
@@ -96,8 +81,6 @@ class BartModelCombined(GenerationMixinCustomCombined, nn.Module):
                  'return_dict': None,
                  'use_mixed': False,
                  'use_head': use_head_1,
-                 'topic_encoder_outputs': topic_encoder_outputs,
-                 'topic_mask': topic_mask,
                  }
 
         out1 = self.model1(**args1)
@@ -146,8 +129,6 @@ class BartModelCombined(GenerationMixinCustomCombined, nn.Module):
             use_cache=None,
             encoder_outputs_1=None,
             encoder_outputs_2=None,
-            topic_encoder_outputs=None,
-            topic_mask=None,
             **kwargs
     ):
         # cut decoder_input_ids if past is used
@@ -158,8 +139,6 @@ class BartModelCombined(GenerationMixinCustomCombined, nn.Module):
             "input_ids": None,  # encoder_outputs is defined. input_ids not needed
             "encoder_outputs_1": encoder_outputs_1,
             "encoder_outputs_2": encoder_outputs_2,
-            "topic_encoder_outputs": topic_encoder_outputs,
-            "topic_mask": topic_mask,
             "past_key_values_1": past_1,
             "past_key_values_2": past_2,
             "decoder_input_ids": decoder_input_ids,
@@ -171,7 +150,7 @@ class BartModelCombined(GenerationMixinCustomCombined, nn.Module):
 
 def load_model(path):
     args = json.load(open(path))
-    config_class, model_class, tokenizer_class = MODEL_CLASSES[args['model_type']]
+    config_class, model_class = BartConfig, multi_head_utils.ConditionalGenerationCustomBartMultHeads
     config = config_class.from_pretrained(args['path'])
     model = model_class.from_pretrained(
         args['path'],
@@ -197,7 +176,7 @@ def evaluate(args, eval_dataset, model: PreTrainedModel, args1, args2, tokenizer
     logger.info("  Batch size = %d", args.eval_batch_size)
 
     if args.generate:
-        f_out = open(os.path.join(eval_output_dir, 'dev_out%s.txt' % suffix), 'w')
+        f_out = open(os.path.join(eval_output_dir, 'test_out%s.txt' % suffix), 'w')
         print(eval_output_dir)
         k = 0
 
@@ -209,28 +188,17 @@ def evaluate(args, eval_dataset, model: PreTrainedModel, args1, args2, tokenizer
                 batch = tuple(t.to(args.device) for t in batch)
                 input_ids, input_attention_mask, decoder_ids = batch[0], batch[1], batch[2]
 
-                if args1['model_type'] == 'bart_topic':
-                    topic_ids, topic_mask = batch[6], batch[7]
-
                 for j in range(input_ids.shape[0]):
                     gold = tokenizer.decode(decoder_ids[j], skip_special_tokens=True)
                     input = tokenizer.decode(input_ids[j], skip_special_tokens=True)
 
                     input_args = {'input_ids': input_ids[j].unsqueeze(0),
-                                  'attention_mask': input_attention_mask[j].unsqueeze(0),
-                                  'num_beams': 6, 'length_penalty': 2, 'no_repeat_ngram_size': 3, 'max_length': 200,
-                                  'min_length': 12, 'top_k': 30, 'top_p': 0.5, 'do_sample': True,
+                                  'attention_mask': input_attention_mask[j].unsqueeze(0), 'num_beams': 6,
+                                  'length_penalty': 2, 'no_repeat_ngram_size': 3, 'max_length': 200, 'min_length': 12,
+                                  'top_k': 30, 'top_p': 0.5, 'do_sample': True,
                                   'decoder_start_token_id': tokenizer.bos_token_id, 'num_return_sequences': 1,
-                                  'gate_prob': args.gate_probability}
-
-                    if args1['model_type'] in ['bart_mult_heads']:
-                        input_args['use_head_1'] = args1['use_head']
-
-                    if args1['model_type'] == 'bart_topic':
-                        input_args['topic_ids'], input_args['topic_mask'] = topic_ids[j].unsqueeze(0), topic_mask[j].unsqueeze(0)
-
-                    if args2['model_type'] in ['bart_mult_heads']:
-                        input_args['use_head_2'] = args2['use_head']
+                                  'gate_prob': args.gate_probability, 'use_head_1': args1['use_head'],
+                                  'use_head_2': args2['use_head']}
 
                     gen = model.generate(**input_args)
 
@@ -247,7 +215,7 @@ def evaluate(args, eval_dataset, model: PreTrainedModel, args1, args2, tokenizer
                     f_out.write('\n')
 
                 k += 1
-                if k > 50:
+                if k > 1000:
                     break
 
             f_out.close()
@@ -337,10 +305,6 @@ def main():
     model2, args2, _ = load_model(args.model_2_config)
     model2.to(args.device)
 
-    if args2['model_type'] == 'bart_topic':
-        print('only model 1 can be topic controlled, pls check config file.')
-        exit()
-
     f_out = open(os.path.join(args.output_dir, 'model_configs.json'), 'w')
     json.dump(args1, f_out)
     f_out.write('\n')
@@ -350,10 +314,7 @@ def main():
     f_out.write('\n')
     f_out.close()
 
-    if args.model_type == 'bart':
-        tokenizer = BartTokenizer.from_pretrained('facebook/bart-large')
-    elif args.model_type == 'pegasus':
-        tokenizer = PegasusTokenizer.from_pretrained('google/pegasus-large')
+    tokenizer = BartTokenizer.from_pretrained('facebook/bart-large')
 
     model = BartModelCombined(model1, model2, config)
     eval_dataset = train_seq2seq_utils.load_and_cache_examples(args, tokenizer, 'test')

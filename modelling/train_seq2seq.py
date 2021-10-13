@@ -1,3 +1,8 @@
+"""Copyright (c) 2021, salesforce.com, inc.
+All rights reserved.
+SPDX-License-Identifier: BSD-3-Clause
+For full license text, see the LICENSE file in the repo root or https://opensource.org/licenses/BSD-3-Clause"""
+
 import argparse
 import json
 import logging
@@ -13,7 +18,6 @@ import train_seq2seq_utils
 import single_head_utils
 import multi_head_utils_3
 import multi_head_utils
-import topic_utils
 from torch import nn
 
 from transformers import (
@@ -42,10 +46,7 @@ MODEL_CLASSES = {"bart": (BartConfig,
                                        BartTokenizer),
                  "bart_mult_heads_2": (BartConfig,
                                        multi_head_utils.ConditionalGenerationCustomBartMultHeads,
-                                       BartTokenizer),
-                 "bart_topic": (BartConfig,
-                                topic_utils.ConditionalGenerationCustomBartTopic,
-                                BartTokenizer)
+                                       BartTokenizer)
                  }
 
 
@@ -130,9 +131,6 @@ def evaluate(args, eval_dataset, model: PreTrainedModel, tokenizer: PreTrainedTo
                       'use_gate_supervision': args.use_gate_supervision, 'gate': gate, 'sent_gate': sent_gate,
                       'use_sentence_gate_supervision': args.use_sentence_gate_supervision}
 
-            if 'topic' in args.model_type:
-                inputs['topic_ids'], inputs['topic_mask'] = batch[6], batch[7]
-
             if args.model_type in ['bart_mult_heads_2', 'bart_mult_heads_3']:
                 inputs['use_mixed'] = args.use_mixed
                 if not args.use_mixed and args.use_head is None:
@@ -187,13 +185,6 @@ def evaluate(args, eval_dataset, model: PreTrainedModel, tokenizer: PreTrainedTo
             if eval_steps > 200:
                 break
 
-    '''
-    for i in range(preds.shape[0]):
-        text = tokenizer.convert_ids_to_tokens(decoder_ids_all[i])
-        for p, t in zip(preds[i], text):
-            print(p, t)
-        exit()'''
-
     if args.use_gate_supervision:
         preds = preds.reshape(-1, 2)
         out_label_ids_sent = out_label_ids_sent.reshape(-1)
@@ -214,9 +205,6 @@ def evaluate(args, eval_dataset, model: PreTrainedModel, tokenizer: PreTrainedTo
 
                 batch = tuple(t.to(args.device) for t in batch)
                 input_ids, input_attention_mask, decoder_ids = batch[0], batch[1], batch[2]
-
-                if args.model_type in ['bart_topic']:
-                    topic_ids, topic_mask = batch[6], batch[7]
 
                 num_return_sequences = 1
                 do_sample = True
@@ -248,10 +236,6 @@ def evaluate(args, eval_dataset, model: PreTrainedModel, tokenizer: PreTrainedTo
                     if not args.use_mixed and args.use_head is None:
                         print('Either set --use_mixed or set --use_head for chosen model_type')
                         exit()
-
-                if args.model_type in ['bart_topic']:
-                    input_args['topic_ids'] = topic_ids
-                    input_args['topic_mask'] = topic_mask
 
                 gen_ids = model.generate(**input_args)
 
@@ -382,9 +366,6 @@ def train(args, train_dataset, eval_dataset, model: PreTrainedModel, tokenizer: 
                       'use_mixed': args.use_mixed, 'gate': gate, 'sent_gate': sent_gate,
                       'use_sentence_gate_supervision': args.use_sentence_gate_supervision}
 
-            if 'topic' in args.model_type:
-                inputs['topic_ids'], inputs['topic_mask'] = batch[6], batch[7]
-
             if args.use_gate_supervision:
                 inputs['use_gate_supervision'] = True
                 outputs, gate_loss, _ = model(**inputs)
@@ -392,6 +373,7 @@ def train(args, train_dataset, eval_dataset, model: PreTrainedModel, tokenizer: 
                 outputs = model(**inputs)
 
             loss = outputs.loss
+            #print(loss)
 
             tr_loss += loss.item()
 
@@ -544,12 +526,11 @@ def main():
     # custom flags
     parser.add_argument("--generate", action="store_true", help="Generate summaries for dev set", )
     parser.add_argument("--dump_posteriors", action="store_true", help="Dump posterior probs at intermediate steps", )
-    parser.add_argument("--example_reweighting", action="store_true", help="Use example_reweighting")
     parser.add_argument("--use_mixed", action="store_true", help="Have multiple heads")
     parser.add_argument("--num_heads", type=int, default=2, help="no. of heads to use")
     parser.add_argument("--use_gate_supervision", action="store_true", help="Use supervision for gating")
     parser.add_argument("--use_head", type=int, default=None, help="use with --generate, options: 0, 1")
-    parser.add_argument("--num_decoder_layers_shared", type=int, default=6, help="shared layers w/ mult heads. (1-12)")
+    parser.add_argument("--num_decoder_layers_shared", type=int, default=8, help="shared layers w/ mult heads. (1-12)")
     parser.add_argument("--gate_probability", type=float, default=None, help="gate prob")
     parser.add_argument("--subpop", type=int, default=0, help="subpopulation to train on")
     parser.add_argument("--use_sentence_gate_supervision", action="store_true", help="use sentence gating")
@@ -612,10 +593,6 @@ def main():
             config.num_decoder_layers_shared = args.num_decoder_layers_shared
             args.use_mixed = True  # Set this as true for training, evaluation can be controlled
             model.initialize_correct_weights(config, num_decoder_layers_shared=args.num_decoder_layers_shared)
-            # model.freeze_weights()
-
-        if args.model_type in ['bart_topic']:
-            model.freeze_weights(num_decoder_layer_freeze=args.num_decoder_layers_shared)
 
     model.to(args.device)
 
